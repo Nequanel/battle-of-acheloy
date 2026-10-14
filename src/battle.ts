@@ -80,6 +80,7 @@ export class Battle {
     }
     this.arrowMesh.thinInstanceSetBuffer("matrix", this.arrowBuf, 16, false);
     this.arrowMesh.thinInstanceCount = 0;
+    this.arrowMesh.isVisible = false;
   }
 
   slot(s: Soldier): [number, number] {
@@ -345,7 +346,9 @@ export class Battle {
       g.mesh.thinInstanceBufferUpdated("matrix");
     }
     if (this.horseRun && this.horseIdle) {
+      // a thin-instanced mesh with zero instances would draw its base geometry at the origin
       this.horseRun.thinInstanceCount = nRun; this.horseIdle.thinInstanceCount = nIdle;
+      this.horseRun.isVisible = nRun > 0; this.horseIdle.isVisible = nIdle > 0;
       this.horseRun.thinInstanceBufferUpdated("matrix"); this.horseIdle.thinInstanceBufferUpdated("matrix");
     }
     const ab = this.arrowBuf;
@@ -357,6 +360,7 @@ export class Battle {
       m.copyToArray(ab, i * 16);
     }
     this.arrowMesh.thinInstanceCount = this.arrows.length;
+    this.arrowMesh.isVisible = this.arrows.length > 0;
     this.arrowMesh.thinInstanceBufferUpdated("matrix");
   }
 }

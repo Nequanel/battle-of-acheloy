@@ -34,6 +34,7 @@ loadHorse(scene, HORSE_URL).then(h => {
 Promise.all([loadHorse(scene, HORSE_URL), loadHorse(scene, HORSE_URL)]).then(([run, idle]) => {
   run.anim?.play(true);
   idle.anim?.play(true); idle.anim?.pause(); idle.anim?.goToFrame(0);
+  run.mesh.isVisible = idle.mesh.isVisible = false; // shown once they have instances
   battle.setHorses(run.mesh, idle.mesh);
 });
 
