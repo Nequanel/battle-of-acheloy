@@ -11,3 +11,8 @@ npm run dev
 Отвори http://localhost:5173. На слаб компютър: http://localhost:5173/?low
 
 Дизайн и план: [docs/design.md](docs/design.md)
+
+## Модели
+
+- **Войници:** изградени процедурно в `src/models.ts` (без външни файлове).
+- **Кон:** `public/models/horse.glb`, взет от примерите на [three.js](https://github.com/mrdoob/three.js/tree/dev/examples/models/gltf). Произлиза от проекта „ROME: 3 Dreams of Black“. Лицензът му не е ясно документиран, затова преди търговско издание трябва да се замени.
