@@ -57,7 +57,7 @@ export function buildWorld(scene: Scene) {
   hemi.intensity = 0.55;
   hemi.diffuse = new Color3(0.85, 0.8, 0.75);
   hemi.groundColor = new Color3(0.3, 0.24, 0.18);
-  const sun = new DirectionalLight("sun", new Vector3(-0.8, -0.35, -0.25), scene);
+  const sun = new DirectionalLight("sun", new Vector3(-0.7, -0.4, 0.55), scene); // morning sun over the sea, south-east
   sun.intensity = 1.5;
   sun.diffuse = new Color3(1.0, 0.82, 0.58);
 

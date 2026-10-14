@@ -190,8 +190,8 @@ export function buildSoldier(scene: Scene, team: Team, kind: Kind): Mesh {
   const belt = add(MeshBuilder.CreateTorus("belt", { diameter: 0.36, thickness: 0.035, tessellation: 14 }, scene), M.leather);
   belt.scaling.z = 0.75; belt.position = v(0, 0.97, 0);
   // cloak over the shoulders
-  const cloak = add(lathe(scene, [[0.2, 1.47], [0.27, 1.3], [0.32, rider ? 1.0 : 0.75]], 12, 0.5), M.cloak);
-  cloak.rotation.y = Math.PI / 2; cloak.scaling.z = 0.8; cloak.position = v(0, 0, -0.03);
+  const cloak = add(lathe(scene, [[0.19, 1.47], [0.215, 1.3], [0.23, rider ? 1.05 : 0.88]], 10, 0.5), M.cloak);
+  cloak.rotation.y = Math.PI / 2; cloak.scaling.z = 0.62; cloak.position = v(0, 0, -0.05);
   // neck, head, beard
   add(limb(scene, v(0, 1.47, 0), v(0, 1.57, 0.01), 0.055, 0.05), M.skin);
   const head = add(MeshBuilder.CreateSphere("head", { diameter: 0.22, segments: 10 }, scene), M.skin);
