@@ -1,5 +1,6 @@
-import { Scene, Mesh, MeshBuilder, StandardMaterial, Color3, Matrix, Vector3, VertexBuffer, ParticleSystem } from "@babylonjs/core";
+import { Scene, Mesh, MeshBuilder, StandardMaterial, Color3, Matrix, Vector3, ParticleSystem } from "@babylonjs/core";
 import { heightAt } from "./world";
+import { buildSoldier, HORSE_SCALE, SADDLE } from "./models";
 
 export type Team = 0 | 1; // 0 = Bulgarians, 1 = Byzantines
 export type Kind = "inf" | "arch" | "cav";
@@ -19,58 +20,6 @@ export interface Unit {
 const GRAVITY = 9.8;
 const CELL = 4;
 
-function paint(m: Mesh, c: Color3) {
-  const n = m.getTotalVertices(), arr: number[] = [];
-  for (let i = 0; i < n; i++) arr.push(c.r, c.g, c.b, 1);
-  m.setVerticesData(VertexBuffer.ColorKind, arr);
-}
-
-// Low-poly placeholder soldiers. Real game: replace with rigged glTF models.
-function buildSoldierMesh(scene: Scene, team: Team, kind: Kind): Mesh {
-  const parts: Mesh[] = [];
-  const add = (m: Mesh, c: Color3) => { paint(m, c); parts.push(m); };
-  const tunic = team === 0 ? new Color3(0.42, 0.1, 0.08) : new Color3(0.55, 0.5, 0.42);
-  const metal = new Color3(0.45, 0.45, 0.47), skin = new Color3(0.62, 0.45, 0.35);
-  const wood = new Color3(0.35, 0.24, 0.15);
-  const shieldC = team === 0 ? new Color3(0.5, 0.12, 0.08) : new Color3(0.62, 0.48, 0.18);
-  let riderY = 0;
-  if (kind === "cav") {
-    const horseC = new Color3(0.28, 0.2, 0.14);
-    const body = MeshBuilder.CreateBox("hb", { width: 0.75, height: 0.8, depth: 2.1 }, scene); body.position.y = 1.35; add(body, horseC);
-    const neck = MeshBuilder.CreateBox("hn", { width: 0.4, height: 0.9, depth: 0.5 }, scene); neck.position.set(0, 1.85, 1.0); neck.rotation.x = -0.6; add(neck, horseC);
-    const head = MeshBuilder.CreateBox("hh", { width: 0.3, height: 0.35, depth: 0.7 }, scene); head.position.set(0, 2.2, 1.45); head.rotation.x = 0.5; add(head, horseC);
-    for (const [lx, lz] of [[-0.25, 0.8], [0.25, 0.8], [-0.25, -0.8], [0.25, -0.8]]) {
-      const leg = MeshBuilder.CreateBox("hl", { width: 0.16, height: 1.0, depth: 0.16 }, scene); leg.position.set(lx, 0.5, lz); add(leg, horseC);
-    }
-    riderY = 1.1;
-  }
-  const torso = MeshBuilder.CreateCylinder("t", { height: 0.75, diameterTop: 0.42, diameterBottom: 0.5, tessellation: 6 }, scene);
-  torso.position.y = 1.2 + riderY; add(torso, kind === "cav" || team === 1 ? metal.scale(0.9) : tunic);
-  if (kind !== "cav") {
-    const legs = MeshBuilder.CreateCylinder("l", { height: 0.85, diameterTop: 0.42, diameterBottom: 0.3, tessellation: 5 }, scene);
-    legs.position.y = 0.42; add(legs, tunic.scale(0.6));
-  }
-  const head = MeshBuilder.CreateSphere("h", { diameter: 0.26, segments: 4 }, scene); head.position.y = 1.72 + riderY; add(head, skin);
-  const helm = MeshBuilder.CreateCylinder("hm", { height: 0.25, diameterTop: 0.02, diameterBottom: 0.3, tessellation: 6 }, scene);
-  helm.position.y = 1.86 + riderY; add(helm, metal);
-  if (kind !== "arch") {
-    const shield = MeshBuilder.CreateCylinder("s", { height: 0.06, diameter: kind === "cav" ? 0.6 : 0.85, tessellation: 10 }, scene);
-    shield.rotation.x = Math.PI / 2; shield.position.set(-0.22, 1.15 + riderY, 0.32); add(shield, shieldC);
-    const spear = MeshBuilder.CreateCylinder("sp", { height: kind === "cav" ? 3.4 : 2.7, diameter: 0.05, tessellation: 3 }, scene);
-    spear.position.set(0.28, 1.4 + riderY, 0.25); spear.rotation.x = kind === "cav" ? 1.2 : 0.15; add(spear, wood);
-  } else {
-    const bow = MeshBuilder.CreateTorus("b", { diameter: 1.1, thickness: 0.04, tessellation: 10 }, scene);
-    bow.scaling.set(1, 1, 0.35); bow.rotation.z = Math.PI / 2; bow.position.set(-0.3, 1.3, 0.2); add(bow, wood);
-  }
-  const m = Mesh.MergeMeshes(parts, true, true)!;
-  const mat = new StandardMaterial("sm" + team + kind, scene);
-  mat.specularColor = new Color3(0.08, 0.08, 0.08);
-  m.material = mat;
-  m.isPickable = false;
-  m.alwaysSelectAsActiveMesh = true;
-  return m;
-}
-
 interface Arrow { x: number; y: number; z: number; vx: number; vy: number; vz: number; stuck: number; team: Team }
 
 export class Battle {
@@ -86,6 +35,19 @@ export class Battle {
   onKill?: (s: Soldier) => void;
   onVolley?: (x: number, z: number) => void;
   private tmp = new Matrix();
+  private horseFix = Matrix.Scaling(-HORSE_SCALE, HORSE_SCALE, HORSE_SCALE);
+  horseRun: Mesh | null = null; horseIdle: Mesh | null = null;
+  private runBuf = new Float32Array(0); private idleBuf = new Float32Array(0);
+
+  /** Real horse models for the cavalry: one copy galloping, one standing. */
+  setHorses(run: Mesh, idle: Mesh) {
+    const n = this.soldiers.filter(s => s.u.kind === "cav").length;
+    this.horseRun = run; this.horseIdle = idle;
+    this.runBuf = new Float32Array(n * 16); this.idleBuf = new Float32Array(n * 16);
+    for (const m of [run, idle]) { m.alwaysSelectAsActiveMesh = true; }
+    run.thinInstanceSetBuffer("matrix", this.runBuf, 16, false);
+    idle.thinInstanceSetBuffer("matrix", this.idleBuf, 16, false);
+  }
 
   constructor(private scene: Scene, private dust: ParticleSystem) {
     const arrow = MeshBuilder.CreateBox("arrow", { width: 0.03, height: 0.03, depth: 0.9 }, scene);
@@ -105,7 +67,7 @@ export class Battle {
       u.soldiers.push(s); this.soldiers.push(s);
     }
     const key = team + kind;
-    if (!this.meshes.has(key)) this.meshes.set(key, { mesh: buildSoldierMesh(this.scene, team, kind), list: [], buf: new Float32Array(0) });
+    if (!this.meshes.has(key)) this.meshes.set(key, { mesh: buildSoldier(this.scene, team, kind), list: [], buf: new Float32Array(0) });
     this.meshes.get(key)!.list.push(...u.soldiers);
     this.units.push(u);
     return u;
@@ -347,21 +309,44 @@ export class Battle {
   }
 
   private render() {
-    const m = this.tmp;
+    const m = this.tmp, hm = new Matrix(), hm2 = new Matrix();
+    let nRun = 0, nIdle = 0;
     for (const g of this.meshes.values()) {
       const buf = g.buf;
       for (let i = 0; i < g.list.length; i++) {
         const s = g.list[i];
         const cav = s.u.kind === "cav";
-        const bob = s.alive ? Math.abs(Math.sin(s.phase)) * (s.moving > 0.2 ? (cav ? 0.18 : 0.07) : 0.01) : 0;
-        const pitch = s.alive ? (s.target && s.cd > 0.6 ? 0.15 : 0) : (cav ? 0 : s.deadPitch);
-        const roll = !s.alive && cav ? s.deadPitch : 0;
-        Matrix.RotationYawPitchRollToRef(s.yaw, pitch, roll, m);
-        const y = heightAt(s.x, s.z) + bob - (!s.alive && !cav ? s.deadPitch * 0.1 : 0);
-        m.setTranslationFromFloats(s.x, y, s.z);
+        const gy = heightAt(s.x, s.z);
+        if (cav) {
+          const fwdX = Math.sin(s.yaw), fwdZ = Math.cos(s.yaw);
+          const running = s.alive && s.moving > 1.5;
+          const bob = s.alive ? (running ? Math.abs(Math.sin(s.phase * 1.3)) * 0.12 : Math.sin(s.phase * 0.3) * 0.01) : 0;
+          // horse
+          Matrix.RotationYawPitchRollToRef(s.yaw, 0, s.alive ? 0 : s.deadPitch, hm);
+          hm.setTranslationFromFloats(s.x, gy - (s.alive ? 0 : 0.35 * s.deadPitch / 1.5), s.z);
+          this.horseFix.multiplyToRef(hm, hm2);
+          if (running) { hm2.copyToArray(this.runBuf, nRun * 16); nRun++; } else { hm2.copyToArray(this.idleBuf, nIdle * 16); nIdle++; }
+          // rider in the saddle, or thrown to the ground beside the horse
+          if (s.alive) {
+            Matrix.RotationYawPitchRollToRef(s.yaw, s.target && s.cd > 0.6 ? 0.12 : 0, 0, m);
+            m.setTranslationFromFloats(s.x + fwdX * SADDLE.z, gy + SADDLE.y + bob, s.z + fwdZ * SADDLE.z);
+          } else {
+            Matrix.RotationYawPitchRollToRef(s.yaw + 1.2, 1.4, 0, m);
+            m.setTranslationFromFloats(s.x + fwdZ * 1.4, gy + 0.2, s.z - fwdX * 1.4);
+          }
+        } else {
+          const bob = s.alive ? Math.abs(Math.sin(s.phase)) * (s.moving > 0.2 ? 0.06 : 0.008) : 0;
+          const pitch = s.alive ? (s.target && s.cd > 0.6 ? 0.15 : 0) : s.deadPitch;
+          Matrix.RotationYawPitchRollToRef(s.yaw, pitch, 0, m);
+          m.setTranslationFromFloats(s.x, gy + bob - (!s.alive ? s.deadPitch * 0.08 : 0), s.z);
+        }
         m.copyToArray(buf, i * 16);
       }
       g.mesh.thinInstanceBufferUpdated("matrix");
+    }
+    if (this.horseRun && this.horseIdle) {
+      this.horseRun.thinInstanceCount = nRun; this.horseIdle.thinInstanceCount = nIdle;
+      this.horseRun.thinInstanceBufferUpdated("matrix"); this.horseIdle.thinInstanceBufferUpdated("matrix");
     }
     const ab = this.arrowBuf;
     for (let i = 0; i < this.arrows.length; i++) {

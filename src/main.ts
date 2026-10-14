@@ -1,8 +1,10 @@
 import {
   Engine, Scene, FreeCamera, Vector3, MeshBuilder, StandardMaterial, Color3, TransformNode,
-  DefaultRenderingPipeline, ImageProcessingConfiguration, ColorCurves, Mesh,
+  DefaultRenderingPipeline, ImageProcessingConfiguration, ColorCurves, Mesh, AnimationGroup,
 } from "@babylonjs/core";
 import { buildWorld, heightAt } from "./world";
+import { loadHorse, HORSE_SCALE, SADDLE } from "./models";
+const HORSE_URL = `${import.meta.env.BASE_URL}models/horse.glb`;
 import { Battle, setupArmies, Unit } from "./battle";
 import { Audio } from "./audio";
 
@@ -18,39 +20,38 @@ cam.minZ = 0.1; cam.maxZ = 2500; cam.fov = 1.05;
 cam.inputs.clear();
 const player = { x: 6, z: 205, yaw: Math.PI, pitch: 0.1, speed: 0, horseYaw: Math.PI, shake: 0, swing: -1 };
 
-// The horse in front of the general: neck, mane, head and ears seen from the saddle.
+// The general's own horse (real glTF model with a gallop animation); the saddle sits at the node origin.
 const horse = new TransformNode("horse", scene);
-const horseMat = new StandardMaterial("horseMat", scene);
-horseMat.diffuseColor = new Color3(0.22, 0.15, 0.1); horseMat.specularColor = new Color3(0.15, 0.12, 0.1);
-const maneMat = new StandardMaterial("maneMat", scene);
-maneMat.diffuseColor = new Color3(0.06, 0.05, 0.04); maneMat.specularColor = Color3.Black();
-const neck = MeshBuilder.CreateCylinder("neck", { height: 1.3, diameterTop: 0.32, diameterBottom: 0.55, tessellation: 10 }, scene);
-neck.parent = horse; neck.position.set(0, 1.6, 0.95); neck.rotation.x = 1.0; neck.material = horseMat;
-const mane = MeshBuilder.CreateBox("mane", { width: 0.08, height: 0.18, depth: 1.25 }, scene);
-mane.parent = horse; mane.position.set(0, 1.88, 0.85); mane.rotation.x = -0.57; mane.material = maneMat;
-const hhead = MeshBuilder.CreateBox("hhead", { width: 0.32, height: 0.36, depth: 0.75 }, scene);
-hhead.parent = horse; hhead.position.set(0, 1.75, 1.6); hhead.rotation.x = 1.0; hhead.material = horseMat;
-for (const sx of [-0.09, 0.09]) {
-  const ear = MeshBuilder.CreateCylinder("ear", { height: 0.18, diameterTop: 0, diameterBottom: 0.08, tessellation: 4 }, scene);
-  ear.parent = horse; ear.position.set(sx, 2.02, 1.38); ear.rotation.x = -0.3; ear.material = horseMat;
-}
-const reinMat = new StandardMaterial("rein", scene); reinMat.diffuseColor = new Color3(0.12, 0.08, 0.05);
-for (const sx of [-0.2, 0.2]) {
-  const rein = MeshBuilder.CreateCylinder("rein", { height: 1.0, diameter: 0.012, tessellation: 3 }, scene);
-  rein.parent = horse; rein.position.set(sx * 0.7, 1.95, 0.75); rein.rotation.x = 1.15; rein.material = reinMat;
-}
-const body = MeshBuilder.CreateBox("hbody", { width: 0.8, height: 0.8, depth: 1.6 }, scene);
-body.parent = horse; body.position.set(0, 1.35, -0.1); body.material = horseMat;
+let playerHorseAnim: AnimationGroup | null = null;
+loadHorse(scene, HORSE_URL).then(h => {
+  h.mesh.parent = horse;
+  h.mesh.scaling.set(-HORSE_SCALE, HORSE_SCALE, HORSE_SCALE);
+  h.mesh.position.set(0, 0, -SADDLE.z);
+  h.mesh.alwaysSelectAsActiveMesh = true;
+  playerHorseAnim = h.anim; h.anim?.play(true); h.anim?.pause();
+});
+// Cavalry horses for both armies: one copy galloping, one standing still.
+Promise.all([loadHorse(scene, HORSE_URL), loadHorse(scene, HORSE_URL)]).then(([run, idle]) => {
+  run.anim?.play(true);
+  idle.anim?.play(true); idle.anim?.pause(); idle.anim?.goToFrame(0);
+  battle.setHorses(run.mesh, idle.mesh);
+});
 
-// The general's sword, held low on the right.
+// The general's sword arm: mail sleeve, leather bracer, gloved hand, a long straight sword.
 const sword = new TransformNode("swordRoot", scene); sword.parent = cam;
-const blade = MeshBuilder.CreateBox("blade", { width: 0.05, height: 0.9, depth: 0.012 }, scene);
-const bladeMat = new StandardMaterial("blade", scene); bladeMat.diffuseColor = new Color3(0.7, 0.7, 0.72); bladeMat.specularColor = new Color3(1, 1, 1); bladeMat.specularPower = 80;
-blade.material = bladeMat; blade.parent = sword; blade.position.y = 0.55;
-const hilt = MeshBuilder.CreateBox("hilt", { width: 0.22, height: 0.04, depth: 0.04 }, scene); hilt.parent = sword; hilt.position.y = 0.1; hilt.material = reinMat;
-const grip = MeshBuilder.CreateCylinder("grip", { height: 0.18, diameter: 0.04 }, scene); grip.parent = sword; grip.material = reinMat;
-sword.position.set(0.42, -0.42, 0.75); sword.rotation.set(0.5, 0, -0.35);
-for (const m of [blade, hilt, grip] as Mesh[]) m.renderingGroupId = 1;
+const steel = new StandardMaterial("steel", scene); steel.diffuseColor = new Color3(0.55, 0.56, 0.6); steel.specularColor = new Color3(1, 1, 1); steel.specularPower = 120;
+const dark = new StandardMaterial("dark", scene); dark.diffuseColor = new Color3(0.16, 0.11, 0.07); dark.specularColor = new Color3(0.1, 0.1, 0.1);
+const brass = new StandardMaterial("brass", scene); brass.diffuseColor = new Color3(0.55, 0.42, 0.18); brass.specularColor = new Color3(0.8, 0.7, 0.4); brass.specularPower = 60;
+const blade = MeshBuilder.CreateCylinder("blade", { height: 0.85, diameterTop: 0.012, diameterBottom: 0.05, tessellation: 4 }, scene);
+blade.scaling.z = 0.18; blade.parent = sword; blade.position.y = 0.52; blade.material = steel;
+const guard = MeshBuilder.CreateBox("guard", { width: 0.2, height: 0.025, depth: 0.03 }, scene); guard.parent = sword; guard.position.y = 0.09; guard.material = brass;
+const grip = MeshBuilder.CreateCylinder("grip", { height: 0.13, diameter: 0.032, tessellation: 8 }, scene); grip.parent = sword; grip.material = dark;
+const pommel = MeshBuilder.CreateSphere("pommel", { diameter: 0.045, segments: 6 }, scene); pommel.parent = sword; pommel.position.y = -0.08; pommel.material = brass;
+const glove = MeshBuilder.CreateSphere("glove", { diameter: 0.09, segments: 8 }, scene); glove.parent = sword; glove.scaling.set(1, 1.3, 1); glove.material = dark;
+const bracer = MeshBuilder.CreateCylinder("bracer", { height: 0.28, diameterTop: 0.075, diameterBottom: 0.09, tessellation: 10 }, scene);
+bracer.parent = sword; bracer.position.set(0.02, -0.05, -0.17); bracer.rotation.x = 1.35; bracer.material = dark;
+sword.position.set(0.36, -0.38, 0.62); sword.rotation.set(0.5, 0, -0.35);
+for (const m of [blade, guard, grip, pommel, glove, bracer] as Mesh[]) m.renderingGroupId = 1;
 
 // ---------- cinematic look (teal shadows, warm highlights, grain, vignette) ----------
 // Add ?low to the URL on weak machines: lower resolution, no post effects except the colour grade.
@@ -209,10 +210,14 @@ scene.onBeforeRenderObservable.add(() => {
   const gy = heightAt(player.x, player.z);
   const gait = Math.abs(player.speed);
   const bob = Math.sin(clock * (4 + gait * 0.9)) * (0.02 + gait * 0.012);
-  horse.position.set(player.x, gy + bob * 0.6, player.z); horse.rotation.y = player.horseYaw;
+  horse.position.set(player.x, gy, player.z); horse.rotation.y = player.horseYaw;
+  if (playerHorseAnim) {
+    if (gait > 1.5) { if (!playerHorseAnim.isPlaying) playerHorseAnim.play(true); playerHorseAnim.speedRatio = Math.min(1.6, 0.4 + gait / 10); }
+    else if (playerHorseAnim.isPlaying) playerHorseAnim.pause();
+  }
   player.shake = Math.max(0, player.shake - dt);
   const sh = player.shake * 0.03;
-  cam.position.set(player.x, gy + 2.65 + bob, player.z);
+  cam.position.set(player.x, gy + SADDLE.y + 0.78 + bob, player.z);
   cam.rotation.set(player.pitch + (Math.random() - 0.5) * sh, player.yaw + (Math.random() - 0.5) * sh, (Math.random() - 0.5) * sh);
   battle.player.x = player.x; battle.player.z = player.z; battle.player.yaw = player.horseYaw;
 
